@@ -1,31 +1,26 @@
-from cmds import cmds, Command, log, console
-from cmds.utils import err_console
+import argparse
+import sys
+from pathlib import Path
+
 from rich.panel import Panel
 from rich.text import Text
 from rich.console import Console
 
-import argparse
-import sys
+from cmds import cmds, Command, log, console
+from cmds.utils import err_console
 
-# 从 pyproject.toml 读取版本号
 try:
     import tomllib
-    from pathlib import Path
-    
     pyproject_path = Path(__file__).parent / "pyproject.toml"
     with open(pyproject_path, "rb") as f:
         pyproject_data = tomllib.load(f)
-    VERSION = pyproject_data.get("project", {}).get("version", "unknown")
+    VERSION = pyproject_data.get("project", {}).get("version", "0.2.0")
 except Exception:
-    VERSION = "0.2.0"  #  fallback 版本
+    VERSION = "0.2.0"
 
 def show_version():
-    """显示彩色版本信息"""
     console = Console()
-    
     console.print()
-    
-    # 创建彩色的版本信息
     text = Text()
     text.append("╭─────────────────────────────────────╮\n", style="bold cyan")
     text.append("│  ", style="cyan")
@@ -40,10 +35,8 @@ def show_version():
     text.append("包管理器", style="bright_white")
     text.append("                       │\n", style="cyan")
     text.append("╰─────────────────────────────────────╯", style="bold cyan")
-    
     console.print(text)
     console.print()
-    
     sys.exit(0)
 
 global_parser = argparse.ArgumentParser(
@@ -58,30 +51,29 @@ global_parser.add_argument(
 )
 subparsers = global_parser.add_subparsers(dest="subcommand", help="[可用命令]")
 
-
 class Vpm:
     def __init__(self, parser: argparse.ArgumentParser):
         self.commands: dict[str, Command] = {}
         self.parser = parser
 
-    def register(self, cmds: list[type[Command]]):
-        for cmd in cmds:
-            c = cmd(subparsers)
-            self.commands[cmd.NAME] = c
+    def register(self, cmd_list: list[type[Command]]):
+        for cmd_cls in cmd_list:
+            c = cmd_cls(subparsers)
+            self.commands[cmd_cls.NAME] = c
 
     def run(self, cmd_name, args):
         if cmd_name not in self.commands:
+            available_cmds = []
+            for name, cmd in self.commands.items():
+                desc = getattr(cmd, "DESCRIPTION", "")
+                color = getattr(cmd, "COLOR", "white")
+                available_cmds.append(f"  [{color}]{name}[/{color}]    {desc}")
+
             err_console.print()
             err_console.print(
                 Panel(
                     f"[bold red]未知命令: [white]{cmd_name}[/white][/bold red]\n\n"
-                    f"[yellow]可用的命令有:[/yellow]\n"
-                    f"  [green]add[/green]    - 添加包\n"
-                    f"  [red]del[/red]     - 删除包\n"
-                    f"  [cyan]list[/cyan]   - 列出已安装的包\n"
-                    f"  [yellow]prune[/yellow]  - 清理无效包和空目录\n"
-                    f"  [magenta]init[/magenta]   - 初始化新项目\n"
-                    f"  [blue]search[/blue] - 搜索可用的包\n\n"
+                    f"[yellow]可用的命令有:[/yellow]\n" + "\n".join(available_cmds) + "\n\n"
                     f"[dim]使用 [white]vpm <命令> --help[/white] 查看命令的详细信息[/dim]",
                     title="[bold red]✘ 错误[/bold red]",
                     border_style="red",
@@ -89,7 +81,7 @@ class Vpm:
                 )
             )
             err_console.print()
-            exit(1)
+            sys.exit(1)
 
         cmd = self.commands[cmd_name]
         cmd.namespace = args
@@ -98,7 +90,7 @@ class Vpm:
         except KeyboardInterrupt:
             console.print()
             log.warning("操作已取消")
-            exit(0)
+            sys.exit(0)
         except Exception as e:
             err_console.print()
             err_console.print(
@@ -112,12 +104,10 @@ class Vpm:
                 )
             )
             err_console.print()
-            exit(1)
-
+            sys.exit(1)
 
 vpm = Vpm(global_parser)
 vpm.register(cmds)
-
 
 def print_banner():
     console.print(
@@ -137,24 +127,12 @@ def print_banner():
         )
     )
     console.print()
-    console.print(
-        Panel(
-            "  [bold red]del[/bold red]      删除已安装的包\n\n"
-            "  [bold cyan]list[/bold cyan]    列出所有已安装的包\n\n"
-            "  [bold yellow]prune[/bold yellow]  清理无效包和空目录\n\n"
-            "  [bold blue]search[/bold blue]  搜索可用的包",
-            border_style="cyan",
-            padding=(1, 2),
-        )
-    )
-
+    console.print("[dim]💡 提示: 使用 vpm <命令> --help 查看具体参数[/dim]\n")
 
 if __name__ == "__main__":
     try:
         args = global_parser.parse_args()
     except SystemExit as e:
-        # argparse 在遇到错误时会调用 sys.exit
-        # 我们捕获它并提供更友好的提示
         if e.code != 0:
             err_console.print()
             err_console.print(
@@ -168,14 +146,13 @@ if __name__ == "__main__":
                 )
             )
             err_console.print()
-        exit(e.code)
+        sys.exit(e.code)
 
-    # 处理版本参数
     if hasattr(args, 'version') and args.version:
         show_version()
 
     if not hasattr(args, "subcommand") or not args.subcommand:
         print_banner()
-        exit(1)
+        sys.exit(1)
 
     vpm.run(args.subcommand, args)
